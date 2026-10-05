@@ -1,0 +1,108 @@
+# StreetSense - Git Ignore Configuration
+
+# ==========================================
+# STRICT IMAGE & MEDIA POLICY (User Request: "don't push images")
+# ==========================================
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.bmp
+*.tiff
+*.svg
+*.ico
+*.mp4
+*.mov
+*.webm
+*.avi
+*.mkv
+*.screen.png
+
+# ==========================================
+# Python & Backend
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+
+# ==========================================
+# Android & Gradle
+# ==========================================
+.gradle/
+build/
+*/build/
+app/build/
+android/app/build/
+*.apk
+*.aab
+*.dex
+*.class
+bin/
+gen/
+out/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ==========================================
+# Node.js & Office Kit
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+dist/
+dist-ssr/
+*.local
+.pnpm-store/
+
+# ==========================================
+# Operating System & IDE
+# ==========================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+.vscode/
+*.swp
+*~
+*.log
