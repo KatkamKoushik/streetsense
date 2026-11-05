@@ -1,10 +1,12 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
-from app.db.repositories import EventRepository
-from app.schemas.events import DetectedEvent, EventCategory, EventSeverity, ConfidenceBreakdown
+from app.db.repositories import EventRepository, SessionRepository
+from app.db.models import DeviceModel
+from app.schemas.events import DetectedEvent
+from app.api.deps import get_current_device, get_current_console, get_authenticated_principal
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -25,7 +27,26 @@ class EventResponse(BaseModel):
 
 
 @router.post("", response_model=EventResponse)
-async def create_event(event: DetectedEvent, db: AsyncSession = Depends(get_db)):
+async def create_event(
+    event: DetectedEvent,
+    current_device: DeviceModel = Depends(get_current_device),
+    db: AsyncSession = Depends(get_db)
+):
+    """Publish a detected hazard event. Bound strictly to device session."""
+    sess_repo = SessionRepository(db)
+    session = await sess_repo.get_by_id(event.session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{event.session_id}' not found"
+        )
+
+    if session.device_id != current_device.device_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Device '{current_device.device_id}' cannot publish events to session '{session.session_id}'"
+        )
+
     repo = EventRepository(db)
     saved = await repo.save_event(event)
     return EventResponse(
@@ -48,8 +69,19 @@ async def create_event(event: DetectedEvent, db: AsyncSession = Depends(get_db))
 async def list_events(
     session_id: Optional[str] = None,
     limit: int = 50,
+    principal: Dict[str, Any] = Depends(get_authenticated_principal),
     db: AsyncSession = Depends(get_db)
 ):
+    """List recent events. Console operators see all; devices only see their own sessions."""
+    if principal["type"] == "device" and session_id:
+        sess_repo = SessionRepository(db)
+        session = await sess_repo.get_by_id(session_id)
+        if session and session.device_id != principal["sub"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Cannot list events for another device's session"
+            )
+
     repo = EventRepository(db)
     events = await repo.list_recent_events(session_id=session_id, limit=limit)
     return [
@@ -72,7 +104,12 @@ async def list_events(
 
 
 @router.post("/{event_id}/dismiss", response_model=EventResponse)
-async def dismiss_event(event_id: str, db: AsyncSession = Depends(get_db)):
+async def dismiss_event(
+    event_id: str,
+    _console: dict = Depends(get_current_console),
+    db: AsyncSession = Depends(get_db)
+):
+    """Dismiss an event alert. Restricted to console operators."""
     repo = EventRepository(db)
     event = await repo.dismiss_event(event_id)
     if not event:

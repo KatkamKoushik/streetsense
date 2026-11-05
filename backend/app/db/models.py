@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, JSON, Text, Index
+    Column, String, Integer, BigInteger, Float, Boolean, DateTime, ForeignKey, JSON, Text, Index
 )
 from sqlalchemy.orm import relationship
 from app.db.session import Base
@@ -20,7 +20,10 @@ class DeviceModel(Base):
     os_version = Column(String(64), nullable=True)
     app_version = Column(String(64), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    api_key_hash = Column(String(256), nullable=True)
+    status = Column(String(32), default="ACTIVE", nullable=False)  # ACTIVE, REVOKED, SUSPENDED
+    api_key_hash = Column(String(256), nullable=True)             # bcrypt hashed device credential
+    key_rotation_count = Column(Integer, default=0, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
@@ -51,7 +54,7 @@ class SensorSnapshotModel(Base):
     snapshot_id = Column(String(64), primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id = Column(String(64), ForeignKey("sessions.session_id", ondelete="CASCADE"), nullable=False, index=True)
     sensor_type = Column(String(64), nullable=False, index=True)
-    timestamp_ns = Column(Integer, nullable=False, index=True)
+    timestamp_ns = Column(BigInteger, nullable=False, index=True)
     values = Column(JSON, nullable=False)  # list of float values
     accuracy = Column(String(32), default="HIGH", nullable=False)
     orientation = Column(String(32), default="UNKNOWN", nullable=False)
@@ -71,7 +74,7 @@ class ExpertRunModel(Base):
     prediction = Column(String(256), nullable=True)
     confidence = Column(Float, default=0.0, nullable=False)
     latency_ms = Column(Float, nullable=False)
-    timestamp_ns = Column(Integer, nullable=False)
+    timestamp_ns = Column(BigInteger, nullable=False)
     provenance = Column(JSON, nullable=True)
     limitations = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
@@ -88,7 +91,7 @@ class EvidenceModel(Base):
     session_id = Column(String(64), ForeignKey("sessions.session_id", ondelete="CASCADE"), nullable=False, index=True)
     evidence_type = Column(String(64), nullable=False, index=True)
     confidence = Column(Float, nullable=False)
-    timestamp_ns = Column(Integer, nullable=False)
+    timestamp_ns = Column(BigInteger, nullable=False)
     source_sensor = Column(String(64), nullable=False)
     attributes = Column(JSON, nullable=False)
     weight = Column(Float, default=1.0, nullable=False)
@@ -104,7 +107,7 @@ class EventModel(Base):
     session_id = Column(String(64), ForeignKey("sessions.session_id", ondelete="CASCADE"), nullable=False, index=True)
     category = Column(String(64), nullable=False, index=True)
     severity = Column(String(32), nullable=False, index=True)
-    timestamp_ns = Column(Integer, nullable=False, index=True)
+    timestamp_ns = Column(BigInteger, nullable=False, index=True)
     confidence_breakdown = Column(JSON, nullable=False)
     contributing_evidence_ids = Column(JSON, nullable=False)
     explanation = Column(Text, nullable=False)
@@ -129,7 +132,7 @@ class LocationModel(Base):
     accuracy_meters = Column(Float, nullable=False)
     speed_mps = Column(Float, nullable=True)
     bearing_degrees = Column(Float, nullable=True)
-    timestamp_ns = Column(Integer, nullable=False)
+    timestamp_ns = Column(BigInteger, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     session = relationship("SessionModel", back_populates="locations")

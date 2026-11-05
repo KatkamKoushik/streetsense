@@ -128,6 +128,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Checklist 19-N002: Re-check permission state when resuming from settings or background;
+        // do not trust cached permission results if user revoked access in OS settings.
+        val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+        if (hasCameraPermission != cameraGranted || hasLocationPermission != locationGranted) {
+            Log.w("StreetSenseUI", "Permission state changed while backgrounded: Camera=$cameraGranted, Location=$locationGranted")
+            hasCameraPermission = cameraGranted
+            hasLocationPermission = locationGranted
+            if (locationGranted) {
+                locationService.startTracking(true)
+            } else {
+                locationService.stopTracking()
+            }
+        }
+    }
+
     private fun checkPermissions() {
         val cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED

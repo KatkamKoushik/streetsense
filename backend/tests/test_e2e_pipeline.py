@@ -1,8 +1,7 @@
 import time
 import json
 import pytest
-from starlette.testclient import TestClient
-from app.main import app
+import websockets
 from app.engine.router import router
 from app.engine.arbitration import arbitration_engine
 from app.engine.fusion import fusion_engine
@@ -12,13 +11,31 @@ from app.schemas.experts import ExpertRequest, ExpertCapability
 from app.schemas.transport import WsMessageEnvelope, EventType
 from app.db.session import AsyncSessionLocal
 from app.db.repositories import EventRepository, SessionRepository, DeviceRepository
+from app.core.security import create_device_token, create_console_token, hash_device_secret
+from app.core.config import settings
 
 
 @pytest.mark.asyncio
-async def test_complete_vertical_slice_pipeline():
-    session_id = f"sess_e2e_{int(time.time())}"
-    device_id = "pixel_8_pro_edge"
+async def test_complete_vertical_slice_pipeline(live_server):
+    ws_url = live_server["ws_url"]
+    session_id = f"sess_e2e_{int(time.time()*1000)}"
+    device_id = f"pixel_8_pro_edge_{int(time.time()*1000)}"
     now_ns = time.time_ns()
+
+    # STEP 0: Provision Device and Session in DB
+    raw_secret = "test-e2e-device-secret-key-32chars!"
+    async with AsyncSessionLocal() as db:
+        dev_repo = DeviceRepository(db)
+        await dev_repo.provision_device(
+            device_id=device_id,
+            name="Pixel 8 Pro Test Edge",
+            secret=raw_secret
+        )
+        sess_repo = SessionRepository(db)
+        await sess_repo.start_session(session_id=session_id, device_id=device_id)
+
+    device_token = create_device_token(device_id)
+    console_token = create_console_token()
 
     # STEP 1: Real Hardware Sensor Readings
     # Normal walking baseline followed by sudden impact / fall shock
@@ -79,12 +96,17 @@ async def test_complete_vertical_slice_pipeline():
     assert "PEDESTRIAN_FALL_OR_IMPACT" in explanation
     assert "Corroborating Evidence" in explanation
 
-    # STEP 6: Transport via WebSocket to Backend & Real-Time Broadcast to Office Kit Console
-    client = TestClient(app)
-    with client.websocket_connect("/ws/office-kit") as observer_ws:
-        with client.websocket_connect(f"/ws/telemetry?device_id={device_id}") as device_ws:
+    # STEP 6: Transport via Authenticated WebSocket to Live Server & Real-Time Broadcast to Web Console
+    async with websockets.connect(f"{ws_url}/ws/console?token={console_token}") as observer_ws:
+        obs_auth = json.loads(await observer_ws.recv())
+        assert obs_auth["event_type"] == "auth.success"
+
+        async with websockets.connect(f"{ws_url}/ws/telemetry?token={device_token}") as device_ws:
+            dev_auth = json.loads(await device_ws.recv())
+            assert dev_auth["event_type"] == "auth.success"
+
             envelope = WsMessageEnvelope(
-                message_id=f"msg_{now_ns}",
+                message_id=f"msg_e2e_{now_ns}",
                 correlation_id=request.correlation_id,
                 session_id=session_id,
                 device_id=device_id,
@@ -97,17 +119,14 @@ async def test_complete_vertical_slice_pipeline():
             )
 
             # Device sends to gateway
-            device_ws.send_text(json.dumps(envelope.model_dump()))
+            await device_ws.send(json.dumps(envelope.model_dump()))
 
             # Observer receives broadcast live
-            received_raw = observer_ws.receive_text()
+            received_raw = await observer_ws.recv()
             received_msg = json.loads(received_raw)
             assert received_msg["event_type"] == EventType.EVENT_DETECTED.value
             assert received_msg["payload"]["event"]["category"] == "PEDESTRIAN_FALL_OR_IMPACT"
             assert received_msg["payload"]["event"]["severity"] == "HIGH_RISK"
-
-            # Allow server task to complete async DB persistence before disconnect
-            time.sleep(0.2)
 
     # STEP 7: Verify Database Persistence
     async with AsyncSessionLocal() as db:

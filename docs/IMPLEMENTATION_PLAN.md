@@ -61,14 +61,14 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
 |                   ▼                               ▼                                                |
 |   ┌───────────────────────────────┐   ┌───────────────────────────────┐                            |
 |   │   Real-Time Broadcast Hub     │   │   Async Storage Engine        │                            |
-|   │   PubSub to Office Kit Clients│   │   SQLAlchemy 2.0 Async        │                            |
-|   │   (/ws/office-kit)            │   │   SQLite (Dev) / PostGIS (Prod│                            |
+|   │   PubSub to Console Clients   │   │   SQLAlchemy 2.0 Async        │                            |
+|   │   (/ws/console)               │   │   SQLite (Dev) / PostGIS (Prod│                            |
 |   └───────────────┬───────────────┘   └───────────────────────────────┘                            |
 +-------------------┼--------------------------------------------------------------------------------+
                     │ WebSocket / JSON Envelope
                     ▼
 +----------------------------------------------------------------------------------------------------+
-|                                  OFFICE KIT OBSERVATION CONSOLE                                    |
+|                                  WEB OBSERVATION CONSOLE                                           |
 |                                                                                                    |
 |   - Real-Time Device Health & Connection Card                                                      |
 |   - Live IMU & Environmental Telemetry Charts                                                      |
@@ -98,14 +98,14 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
 - Audited system tools: Python 3.12.10, Node.js 24.21.0, OpenJDK 17.0.18, Git 2.56.0.
 - Audited agentic skills catalog (2,560 skills) and established relevant skills.
 - Delivered foundational architecture documentation in `docs/`:
-  - [`docs/ARCHITECTURE.md`](file:///c:/streetsense/docs/ARCHITECTURE.md)
-  - [`docs/EXPERT_SYSTEM.md`](file:///c:/streetsense/docs/EXPERT_SYSTEM.md)
-  - [`docs/DATA_MODEL.md`](file:///c:/streetsense/docs/DATA_MODEL.md)
-  - [`docs/REALTIME_PROTOCOL.md`](file:///c:/streetsense/docs/REALTIME_PROTOCOL.md)
-  - [`docs/FAILURE_MODES.md`](file:///c:/streetsense/docs/FAILURE_MODES.md)
-  - [`docs/SECURITY.md`](file:///c:/streetsense/docs/SECURITY.md)
-  - [`docs/TESTING.md`](file:///c:/streetsense/docs/TESTING.md)
-  - [`docs/RUNBOOK.md`](file:///c:/streetsense/docs/RUNBOOK.md)
+  - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
+  - [`docs/EXPERT_SYSTEM.md`](EXPERT_SYSTEM.md)
+  - [`docs/DATA_MODEL.md`](DATA_MODEL.md)
+  - [`docs/REALTIME_PROTOCOL.md`](REALTIME_PROTOCOL.md)
+  - [`docs/FAILURE_MODES.md`](FAILURE_MODES.md)
+  - [`docs/SECURITY.md`](SECURITY.md)
+  - [`docs/TESTING.md`](TESTING.md)
+  - [`docs/RUNBOOK.md`](RUNBOOK.md)
 
 ---
 
@@ -152,7 +152,7 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
   - `backend/app/websocket/manager.py`: Connection tracking, session rooms, ping/pong heartbeats, sequence deduplication cache.
   - `backend/app/websocket/endpoints.py`:
     - `/ws/telemetry`: Authenticated mobile edge ingress. Validates messages, triggers persistence, and dispatches to broadcast hub.
-    - `/ws/office-kit`: Public/authenticated observation console egress. Emits live device health, telemetry, expert execution waterfalls, and alerts.
+    - `/ws/console`: Public/authenticated observation console egress. Emits live device health, telemetry, expert execution waterfalls, and alerts.
 - **Validation Criteria:**
   - Concurrent WebSocket integration tests verifying message dispatch, disconnection cleanup, and deduplication.
 
@@ -179,21 +179,21 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
 
 ---
 
-### Phase 6: Office Kit Real-Time Observation Console
+### Phase 6: Web Observation Console
 **Goal:** Build the desktop/web observation console in React + TypeScript + Vite.
 
 - **Files to Create:**
-  - `office-kit/package.json`: React 19, TypeScript, Lucide icons, Vite, TailwindCSS / CSS design tokens.
-  - `office-kit/vite.config.ts`: Vite dev server configuration with proxy to backend.
-  - `office-kit/src/types/protocol.ts`: TypeScript interfaces matching backend schemas.
-  - `office-kit/src/services/websocket.ts`: Robust WebSocket client with auto-reconnect and heartbeat tracking.
-  - `office-kit/src/components/Header.tsx`: System branding, server connection status, latency pill.
-  - `office-kit/src/components/DeviceStatusCard.tsx`: Connected device ID, battery, thermal status, active sensor pills.
-  - `office-kit/src/components/TelemetryChart.tsx`: Live 3-axis IMU acceleration, gyroscope, and lux streams.
-  - `office-kit/src/components/ExpertExecutionTimeline.tsx`: Waterfall visualization of active experts, execution latency, and confidence.
-  - `office-kit/src/components/AlertIncidentFeed.tsx`: Live stream of detected hazards with evidence citations and reasoning explanations.
-  - `office-kit/src/components/SpatialMap.tsx`: Live coordinate and heading tracker with real geospatial pins.
-  - `office-kit/src/App.tsx`: Master responsive glassmorphic dashboard layout.
+  - `web-console/package.json`: React 19, TypeScript, Lucide icons, Vite, TailwindCSS / CSS design tokens.
+  - `web-console/vite.config.ts`: Vite dev server configuration with proxy to backend.
+  - `web-console/src/types/protocol.ts`: TypeScript interfaces matching backend schemas.
+  - `web-console/src/services/websocket.ts`: Robust WebSocket client with auto-reconnect and heartbeat tracking.
+  - `web-console/src/components/Header.tsx`: System branding, server connection status, latency pill.
+  - `web-console/src/components/DeviceStatusCard.tsx`: Connected device ID, battery, thermal status, active sensor pills.
+  - `web-console/src/components/TelemetryChart.tsx`: Live 3-axis IMU acceleration, gyroscope, and lux streams.
+  - `web-console/src/components/ExpertExecutionTimeline.tsx`: Waterfall visualization of active experts, execution latency, and confidence.
+  - `web-console/src/components/AlertIncidentFeed.tsx`: Live stream of detected hazards with evidence citations and reasoning explanations.
+  - `web-console/src/components/SpatialMap.tsx`: Live coordinate and heading tracker with real geospatial pins.
+  - `web-console/src/App.tsx`: Master responsive glassmorphic dashboard layout.
 - **Validation Criteria:**
   - `npm run build` succeeds with zero TypeScript or bundling errors.
   - Live WebSocket stream verification: charts, expert waterfalls, and incident feeds update dynamically upon message arrival.
@@ -231,9 +231,9 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
 
 - **Verification Workflow:**
   1. Initialize database and start FastAPI server (`http://127.0.0.1:8000`).
-  2. Launch Office Kit Console (`http://localhost:5173`).
+  2. Launch Web Console (`http://localhost:5173`).
   3. Run the live verification client emitting real sensor data (accelerometer jerk, sudden deceleration, low lux, obstacle detection).
-  4. Verify on Office Kit Console:
+  4. Verify on Web Console:
      - Real-time telemetry charts reflect incoming samples.
      - Expert execution timeline shows exact latency ms and status.
      - Evidence fusion triggers a deterministic hazard event.
@@ -242,7 +242,7 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
   6. Execute comprehensive test suite:
      ```bash
      cd backend && pytest tests -v
-     cd ../office-kit && npm run build
+     cd ../web-console && npm run build
      ```
 
 ---
@@ -250,7 +250,7 @@ StreetSense is a real-time mobile environmental and activity sensing platform po
 ## 5. First Vertical Slice Milestone Specification
 
 The **First Vertical Slice** proves the fundamental architecture with zero mock data:
-$$\text{Sensor Input} \to \text{Ring Buffer} \to \text{Motion Expert} \to \text{Evidence Creation} \to \text{Fusion} \to \text{Decision} \to \text{WebSocket} \to \text{DB Persistence} \to \text{Office Kit UI}$$
+$$\text{Sensor Input} \to \text{Ring Buffer} \to \text{Motion Expert} \to \text{Evidence Creation} \to \text{Fusion} \to \text{Decision} \to \text{WebSocket} \to \text{DB Persistence} \to \text{Web Console UI}$$
 
 1. **Input**: Real 3-axis acceleration snapshot ($\ge 2.5g$ kinetic spike followed by sudden arrest).
 2. **Preprocessing**: Normalized into `SensorSnapshot` with timestamp, accuracy, and sensor source.
@@ -260,4 +260,4 @@ $$\text{Sensor Input} \to \text{Ring Buffer} \to \text{Motion Expert} \to \text{
 6. **Local Alert**: Triggers local edge haptic alert.
 7. **Transport**: Transmitted over WebSocket in an authenticated `WsMessageEnvelope` with correlation ID.
 8. **Persistence**: FastAPI backend stores session, sensor snapshot, expert run, evidence, and event in SQLite/PostgreSQL.
-9. **Display**: Office Kit console receives event in real time, plots the IMU jerk on the live chart, adds the expert run to the waterfall timeline, and renders the hazard card with evidence citations.
+9. **Display**: Web Console receives event in real time, plots the IMU jerk on the live chart, adds the expert run to the waterfall timeline, and renders the hazard card with evidence citations.

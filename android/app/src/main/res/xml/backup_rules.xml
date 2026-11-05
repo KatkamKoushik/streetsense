@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Checklist 19-N007: Exclude cryptographic tokens and local database from cloud backup -->
+<full-backup-content>
+    <exclude domain="database" path="streetsense_offline.db" />
+    <exclude domain="database" path="streetsense_offline.db-wal" />
+    <exclude domain="database" path="streetsense_offline.db-shm" />
+    <exclude domain="sharedpref" path="device_credentials.xml" />
+    <exclude domain="sharedpref" path="device_tokens.xml" />
+</full-backup-content>

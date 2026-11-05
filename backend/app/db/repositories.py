@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any
-from sqlalchemy import select, update, desc
+from sqlalchemy import select, update, delete, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     DeviceModel, SessionModel, SensorSnapshotModel, ExpertRunModel,
@@ -11,6 +12,7 @@ from app.schemas.experts import ExpertResult
 from app.schemas.evidence import EvidenceItem
 from app.schemas.events import DetectedEvent
 from app.schemas.transport import DeviceStatusPayload
+from app.core.security import hash_device_secret, verify_device_secret
 
 
 class DeviceRepository:
@@ -22,12 +24,20 @@ class DeviceRepository:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def register_or_update(
-        self, device_id: str, name: str, model: Optional[str] = None,
-        os_version: Optional[str] = None, app_version: Optional[str] = None
+    async def provision_device(
+        self,
+        device_id: str,
+        name: str,
+        secret: str,
+        model: Optional[str] = None,
+        os_version: Optional[str] = None,
+        app_version: Optional[str] = None
     ) -> DeviceModel:
+        """Register or re-provision a device with a cryptographic secret verifier."""
         device = await self.get_by_id(device_id)
         now = datetime.now(timezone.utc)
+        api_key_hash = hash_device_secret(secret)
+
         if device is None:
             device = DeviceModel(
                 device_id=device_id,
@@ -36,6 +46,10 @@ class DeviceRepository:
                 os_version=os_version,
                 app_version=app_version,
                 is_active=True,
+                status="ACTIVE",
+                api_key_hash=api_key_hash,
+                key_rotation_count=0,
+                created_at=now,
                 last_seen_at=now
             )
             self.db.add(device)
@@ -44,7 +58,55 @@ class DeviceRepository:
             device.model = model or device.model
             device.os_version = os_version or device.os_version
             device.app_version = app_version or device.app_version
+            device.is_active = True
+            device.status = "ACTIVE"
+            device.api_key_hash = api_key_hash
+            device.revoked_at = None
             device.last_seen_at = now
+
+        await self.db.commit()
+        await self.db.refresh(device)
+        return device
+
+    async def verify_credentials(self, device_id: str, secret: str) -> Optional[DeviceModel]:
+        """Authenticate a device against its stored verifier. Validates status is ACTIVE."""
+        device = await self.get_by_id(device_id)
+        if not device:
+            return None
+
+        if not device.is_active or device.status != "ACTIVE":
+            return None
+
+        if not verify_device_secret(secret, device.api_key_hash):
+            return None
+
+        device.last_seen_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(device)
+        return device
+
+    async def rotate_key(self, device_id: str, old_secret: str, new_secret: str) -> Optional[DeviceModel]:
+        """Rotate device secret after verifying existing credentials."""
+        device = await self.verify_credentials(device_id, old_secret)
+        if not device:
+            return None
+
+        device.api_key_hash = hash_device_secret(new_secret)
+        device.key_rotation_count += 1
+        device.last_seen_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        await self.db.refresh(device)
+        return device
+
+    async def revoke_device(self, device_id: str) -> Optional[DeviceModel]:
+        """Immediately revoke a device and deactivate all associated access."""
+        device = await self.get_by_id(device_id)
+        if not device:
+            return None
+
+        device.is_active = False
+        device.status = "REVOKED"
+        device.revoked_at = datetime.now(timezone.utc)
         await self.db.commit()
         await self.db.refresh(device)
         return device
@@ -65,6 +127,13 @@ class SessionRepository:
         return result.scalar_one_or_none()
 
     async def start_session(self, session_id: str, device_id: str) -> SessionModel:
+        """Start a session strictly for an active, registered device."""
+        dev_stmt = select(DeviceModel).where(DeviceModel.device_id == device_id)
+        dev_res = await self.db.execute(dev_stmt)
+        device = dev_res.scalar_one_or_none()
+        if not device or not device.is_active or device.status != "ACTIVE":
+            raise ValueError(f"Cannot start session for unprovisioned or non-active device '{device_id}'")
+
         session = await self.get_by_id(session_id)
         now = datetime.now(timezone.utc)
         if session is None:
@@ -76,13 +145,21 @@ class SessionRepository:
             )
             self.db.add(session)
         else:
-            session.device_id = device_id
+            if session.device_id != device_id:
+                raise ValueError(f"Session '{session_id}' belongs to another device '{session.device_id}'")
             session.started_at = now
             session.ended_at = None
             session.status = "ACTIVE"
         await self.db.commit()
         await self.db.refresh(session)
         return session
+
+    async def verify_session_owner(self, session_id: str, device_id: str) -> bool:
+        """Cryptographically check if a session belongs to the requesting device."""
+        session = await self.get_by_id(session_id)
+        if not session:
+            return False
+        return session.device_id == device_id
 
     async def end_session(self, session_id: str, summary: Optional[Dict[str, Any]] = None) -> Optional[SessionModel]:
         session = await self.get_by_id(session_id)
@@ -143,6 +220,16 @@ class TelemetryRepository:
         await self.db.commit()
         await self.db.refresh(model)
         return model
+
+    async def purge_expired_records(self, retention_days: int) -> int:
+        """Enforce privacy retention policy by purging raw location and sensor snapshots older than retention days."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        stmt1 = delete(SensorSnapshotModel).where(SensorSnapshotModel.created_at < cutoff)
+        res1 = await self.db.execute(stmt1)
+        stmt2 = delete(LocationModel).where(LocationModel.created_at < cutoff)
+        res2 = await self.db.execute(stmt2)
+        await self.db.commit()
+        return (res1.rowcount or 0) + (res2.rowcount or 0)
 
 
 class ExpertRunRepository:

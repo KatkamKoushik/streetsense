@@ -82,7 +82,7 @@ captures/
 .cxx/
 
 # ==========================================
-# Node.js & Office Kit
+# Node.js & Web Console
 # ==========================================
 node_modules/
 npm-debug.log*
@@ -106,3 +106,6 @@ ehthumbs.db
 *.swp
 *~
 *.log
+
+# Local Reference & Checklist Files
+mobile_apps_and_websites_exhaustive_master_checklist.md

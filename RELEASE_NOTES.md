@@ -14,8 +14,8 @@ StreetSense is a real-time mobile environmental and kinetic sensing platform wit
 - Evidence arbitration engine synthesizing kinetic shock events into probabilistic incident signals (e.g., `PEDESTRIAN_FALL_OR_IMPACT`, `ROAD_SURFACE_ANOMALY`).
 
 ### 3. Production Real-Time Gateway & Live Console
-- **FastAPI / Python 3.12 Backend**: Real-time bidirectional WebSocket ingress (`/ws/telemetry`) and broadcast stream (`/ws/office-kit`).
-- **Office Kit Console**: React 18, Vite, TypeScript, and TailwindCSS dashboard rendering live spatial maps, kinetic telemetry charts, and incident alerts with sub-millisecond updates.
+- **FastAPI / Python 3.12 Backend**: Real-time bidirectional WebSocket ingress (`/ws/telemetry`) and broadcast stream (`/ws/console`).
+- **Web Console**: React 18, Vite, TypeScript, and TailwindCSS dashboard rendering live spatial maps, kinetic telemetry charts, and incident alerts with sub-millisecond updates.
 - **SQLite / PostGIS Persistence**: Full session and telemetry persistence with zero-dependency native SQLite fallback.
 
 ### 4. Zero-Mock Physical Hardware Policy
@@ -36,8 +36,8 @@ source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 python -m uvicorn app.main:app --port 8000
 
-# Office Kit Console
-cd office-kit
-pnpm install
-pnpm dev
+# Web Console
+cd web-console
+npm install
+npm run dev
 ```

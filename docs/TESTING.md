@@ -67,7 +67,7 @@ pytest backend/tests/test_websocket_transport.py -v
 
 ### Console Web Client Suite
 ```bash
-cd office-kit
+cd web-console
 npm run lint
 npm run build
 ```

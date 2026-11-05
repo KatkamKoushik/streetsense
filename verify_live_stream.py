@@ -2,21 +2,117 @@ import asyncio
 import json
 import time
 import math
+import urllib.request
+import urllib.error
 import websockets
 
-BACKEND_WS_URL = "ws://127.0.0.1:8000/ws/telemetry?device_id=pixel_8_pro_demo"
+BACKEND_HTTP_URL = "http://127.0.0.1:8000"
+BACKEND_WS_URL = "ws://127.0.0.1:8000/ws/telemetry"
+DEVICE_ID = "pixel_8_pro_demo"
+PROVISIONING_KEY = "streetsense_dev_provisioning_master_key_32c"
+DEMO_SECRET = "sec_demo_credential_pixel_8_pro_12345"
+
+
+def setup_device_auth() -> str:
+    """Provision device and acquire cryptographically verified JWT bearer token."""
+    print("Step 1: Provisioning demo device...")
+    prov_req = urllib.request.Request(
+        f"{BACKEND_HTTP_URL}/api/v1/devices/provision",
+        data=json.dumps({
+            "device_id": DEVICE_ID,
+            "name": "Pixel 8 Pro Verification Client",
+            "device_secret": DEMO_SECRET,
+            "model": "Pixel 8 Pro",
+            "os_version": "Android 15 (API 35)"
+        }).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "X-Provisioning-Key": PROVISIONING_KEY
+        },
+        method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(prov_req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            print(f"[OK] Device provisioned with status: {data.get('status')}")
+    except urllib.error.HTTPError as e:
+        print(f"[NOTE] Provisioning response ({e.code}): Device already enrolled or updated.")
+
+    print("Step 2: Acquiring device telemetry JWT token...")
+    token_req = urllib.request.Request(
+        f"{BACKEND_HTTP_URL}/api/v1/auth/token",
+        data=json.dumps({
+            "device_id": DEVICE_ID,
+            "device_secret": DEMO_SECRET
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST"
+    )
+
+    with urllib.request.urlopen(token_req) as resp:
+        token_data = json.loads(resp.read().decode("utf-8"))
+        access_token = token_data["access_token"]
+        print(f"[OK] Token issued for {token_data['subject']} (expires in {token_data['expires_in_minutes']}m)")
+        return access_token
+
+
+def start_device_session(token: str, session_id: str) -> None:
+    """Explicitly start an authenticated session in the database."""
+    print(f"Step 3: Registering active session '{session_id}'...")
+    sess_req = urllib.request.Request(
+        f"{BACKEND_HTTP_URL}/api/v1/sessions/start",
+        data=json.dumps({
+            "session_id": session_id,
+            "device_id": DEVICE_ID
+        }).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        },
+        method="POST"
+    )
+    with urllib.request.urlopen(sess_req) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+        print(f"[OK] Session started successfully: {data['session_id']}")
 
 
 async def run_live_telemetry_stream():
     print("=" * 60)
-    print("StreetSense Live Telemetry & Multi-Expert Verification Stream")
-    print("Connecting to Backend Gateway at ws://127.0.0.1:8000/ws/telemetry...")
+    print("StreetSense Live Telemetry & Identity Verification Stream")
     print("=" * 60)
 
     try:
+        token = setup_device_auth()
+    except Exception as e:
+        print(f"[FATAL] Authentication setup failed: {e}")
+        print("Ensure backend is running: python -m uvicorn app.main:app --port 8000")
+        return
+
+    session_id = f"sess_live_{int(time.time())}"
+    try:
+        start_device_session(token, session_id)
+    except Exception as e:
+        print(f"[FATAL] Session creation failed: {e}")
+        return
+
+    print(f"\nStep 4: Connecting to authenticated WebSocket at {BACKEND_WS_URL}...")
+    try:
         async with websockets.connect(BACKEND_WS_URL) as ws:
-            print("[CONNECTED] Edge device linked to gateway. Streaming real telemetry...\n")
-            session_id = f"sess_live_{int(time.time())}"
+            # First message must be authentication frame
+            auth_frame = {
+                "event_type": "auth",
+                "token": token
+            }
+            await ws.send(json.dumps(auth_frame))
+            auth_resp_raw = await ws.recv()
+            auth_resp = json.loads(auth_resp_raw)
+
+            if auth_resp.get("event_type") != "auth.success":
+                print(f"[AUTH FAILED] {auth_resp}")
+                return
+
+            print(f"[AUTHENTICATED] WebSocket authenticated as {auth_resp.get('subject')}\n")
             seq = 1
 
             # 1. Send Device Status
@@ -24,7 +120,7 @@ async def run_live_telemetry_stream():
                 "message_id": f"msg_stat_{seq}",
                 "correlation_id": f"corr_{seq}",
                 "session_id": session_id,
-                "device_id": "pixel_8_pro_demo",
+                "device_id": DEVICE_ID,
                 "timestamp_ns": time.time_ns(),
                 "event_type": "device.status",
                 "sequence_number": seq,
@@ -43,11 +139,10 @@ async def run_live_telemetry_stream():
             await ws.send(json.dumps(device_status_msg))
             seq += 1
 
-            # 2. Stream walking baseline (10 samples)
+            # 2. Stream walking baseline (12 samples)
             print("Phase 1: Streaming Normal Pedestrian Motion (Walking Baseline)...")
             for i in range(12):
                 now_ns = time.time_ns()
-                # Subtle sinusoidal walking gait motion around 9.8 m/s²
                 t = i * 0.2
                 x = 0.4 * math.sin(t * 3.0)
                 y = 9.81 + 1.2 * math.cos(t * 3.0)
@@ -57,7 +152,7 @@ async def run_live_telemetry_stream():
                     "message_id": f"msg_snap_{seq}",
                     "correlation_id": f"corr_{seq}",
                     "session_id": session_id,
-                    "device_id": "pixel_8_pro_demo",
+                    "device_id": DEVICE_ID,
                     "timestamp_ns": now_ns,
                     "event_type": "sensor.status",
                     "sequence_number": seq,
@@ -66,41 +161,27 @@ async def run_live_telemetry_stream():
                             {
                                 "sensor_type": "ACCELEROMETER",
                                 "timestamp_ns": now_ns,
-                                "values": [round(x, 2), round(y, 2), round(z, 2)],
-                                "accuracy": "HIGH",
-                                "orientation": "PORTRAIT"
-                            },
-                            {
-                                "sensor_type": "AMBIENT_LIGHT",
-                                "timestamp_ns": now_ns,
-                                "values": [340.0],
+                                "values": [round(x, 3), round(y, 3), round(z, 3)],
                                 "accuracy": "HIGH",
                                 "orientation": "PORTRAIT"
                             }
-                        ],
-                        "location": {
-                            "latitude": 37.7749 + (i * 0.00002),
-                            "longitude": -122.4194 + (i * 0.00002),
-                            "altitude": 14.5,
-                            "accuracy_meters": 4.2,
-                            "speed_mps": 1.3,
-                            "bearing_degrees": 45.0,
-                            "timestamp_ns": now_ns
-                        }
+                        ]
                     }
                 }
                 await ws.send(json.dumps(snap_msg))
                 seq += 1
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.1)
 
-            # 3. Simulate Sudden Impact / Fall Event
-            print("\nPhase 2: Simulating Sudden High-Kinetic Shock (32.5 m/s² ~3.3g)...")
+            print("[SUCCESS] Baseline walking telemetry streaming live at ~10Hz.")
+
+            # 3. Simulate sudden fall / kinetic impact
+            print("\nPhase 2: Triggering Anomalous Kinetic Shock (Pedestrian Fall)...")
             now_ns = time.time_ns()
             shock_msg = {
-                "message_id": f"msg_shock_{seq}",
+                "message_id": f"msg_snap_{seq}",
                 "correlation_id": f"corr_{seq}",
                 "session_id": session_id,
-                "device_id": "pixel_8_pro_demo",
+                "device_id": DEVICE_ID,
                 "timestamp_ns": now_ns,
                 "event_type": "sensor.status",
                 "sequence_number": seq,
@@ -109,23 +190,22 @@ async def run_live_telemetry_stream():
                         {
                             "sensor_type": "ACCELEROMETER",
                             "timestamp_ns": now_ns,
-                            "values": [12.4, 28.6, 9.8],
+                            "values": [12.4, 30.1, -8.6],
                             "accuracy": "HIGH",
-                            "orientation": "PORTRAIT"
+                            "orientation": "FLAT"
                         }
                     ]
                 }
             }
             await ws.send(json.dumps(shock_msg))
             seq += 1
-            await asyncio.sleep(0.1)
 
-            # 4. Emit Expert Completed Waterfall
+            # 4. Expert Run Completed
             expert_msg = {
                 "message_id": f"msg_exp_{seq}",
                 "correlation_id": f"corr_{seq}",
                 "session_id": session_id,
-                "device_id": "pixel_8_pro_demo",
+                "device_id": DEVICE_ID,
                 "timestamp_ns": now_ns,
                 "event_type": "expert.completed",
                 "sequence_number": seq,
@@ -168,7 +248,7 @@ async def run_live_telemetry_stream():
                 "message_id": f"msg_evt_{seq}",
                 "correlation_id": f"corr_{seq}",
                 "session_id": session_id,
-                "device_id": "pixel_8_pro_demo",
+                "device_id": DEVICE_ID,
                 "timestamp_ns": now_ns,
                 "event_type": "event.detected",
                 "sequence_number": seq,
@@ -201,39 +281,10 @@ async def run_live_telemetry_stream():
             await ws.send(json.dumps(event_msg))
             print("[SUCCESS] Event transmitted & persisted: PEDESTRIAN_FALL_OR_IMPACT (HIGH_RISK)")
 
-            # Continue streaming at resting position
-            print("\nPhase 3: Device resting after impact. Continuing stream for 10 seconds...")
-            for i in range(20):
-                now_ns = time.time_ns()
-                snap_msg = {
-                    "message_id": f"msg_snap_{seq}",
-                    "correlation_id": f"corr_{seq}",
-                    "session_id": session_id,
-                    "device_id": "pixel_8_pro_demo",
-                    "timestamp_ns": now_ns,
-                    "event_type": "sensor.status",
-                    "sequence_number": seq,
-                    "payload": {
-                        "snapshots": [
-                            {
-                                "sensor_type": "ACCELEROMETER",
-                                "timestamp_ns": now_ns,
-                                "values": [0.1, 9.8, 0.2],
-                                "accuracy": "HIGH",
-                                "orientation": "PORTRAIT"
-                            }
-                        ]
-                    }
-                }
-                await ws.send(json.dumps(snap_msg))
-                seq += 1
-                await asyncio.sleep(0.3)
-
-            print("\n[STREAM COMPLETE] Live demonstration telemetry stream finished successfully.")
+            print("\n[STREAM COMPLETE] Live authenticated telemetry stream verified successfully.")
 
     except Exception as e:
         print(f"\n[ERROR] Connection failed: {e}")
-        print("Make sure the backend is running first: python -m uvicorn app.main:app --port 8000")
 
 
 if __name__ == "__main__":

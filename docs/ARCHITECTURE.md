@@ -20,7 +20,7 @@ The platform spans three primary tiers:
    - Ingestion and persistence of normalized sensor snapshots, expert execution telemetry, evidence traces, and hazard events.
    - PostGIS spatial indexing for geospatial queries and proximity fences.
    - Event pub/sub bus broadcasting live telemetry to connected observation clients.
-3. **Office Kit Observation Console (Vite / React / TypeScript / Modern High-Performance UI)**:
+3. **Web Observation Console (Vite / React / TypeScript / Modern High-Performance UI)**:
    - Live stream visualization of connected devices, active sessions, and hardware telemetry.
    - Real-time timeline of expert activations, inference latencies, confidence metrics, and evidence graphs.
    - Interactive spatial map displaying device trajectory and localized hazard detections.
@@ -74,7 +74,7 @@ graph TD
         CACHE[(Redis State & Pub/Sub)]
     end
 
-    subgraph OfficeKitConsole ["Office Kit Observation Console (Web / Operator)"]
+    subgraph WebConsole ["Web Observation Console (Web / Operator)"]
         DASH[Live Device & Session Monitor]
         HUD[Telemetry & Sensor HUD]
         EVD_GRAPH[Evidence & Expert Timeline]
@@ -106,9 +106,9 @@ graph TD
     REST_API --> DB
     EVENT_BUS <--> CACHE
 
-    %% Office Kit Flow
-    EVENT_BUS -->|Live Event Stream| OfficeKitConsole
-    REST_API -->|Historical & Session Queries| OfficeKitConsole
+    %% Web Console Flow
+    EVENT_BUS -->|Live Event Stream| WebConsole
+    REST_API -->|Historical & Session Queries| WebConsole
 ```
 
 ---
@@ -145,7 +145,7 @@ graph LR
         M_SYNC[Offline Sync & WS Client]
     end
 
-    subgraph ConsoleLayer ["4. Office Kit Console"]
+    subgraph ConsoleLayer ["4. Web Observation Console"]
         UI_WS[WebSocket Client & State Store]
         UI_MAP[Leaflet/MapLibre Spatial View]
         UI_COMPONENTS[Telemetry, Timeline & Alert HUD]
@@ -284,7 +284,7 @@ graph TB
     end
 
     subgraph Operator ["Monitoring & Operations"]
-        BROWSER["Operator Workstation (Office Kit Console)"]
+        BROWSER["Operator Workstation (Web Console)"]
     end
 
     APK -->|WSS / HTTPS| NGINX

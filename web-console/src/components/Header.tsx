@@ -41,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
               border: '1px solid rgba(56, 189, 248, 0.3)',
               fontWeight: 600
             }}>
-              OFFICE KIT
+              WEB CONSOLE
             </span>
           </div>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>

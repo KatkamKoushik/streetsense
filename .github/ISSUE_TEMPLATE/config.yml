@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Community Discussions
+    url: https://github.com/KatkamKoushik/streetsense/discussions
+    about: Ask questions, share ideas, and connect with other StreetSense contributors.
+  - name: Security Vulnerability Report
+    url: https://github.com/KatkamKoushik/streetsense/blob/main/SECURITY.md
+    about: Report a security vulnerability confidentially to maintainers.
+

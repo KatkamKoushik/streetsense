@@ -49,6 +49,12 @@ interface SyncQueueDao {
 
     @Query("DELETE FROM sync_queue WHERE id = :id")
     suspend fun dequeue(id: Long)
+
+    @Query("SELECT COUNT(*) FROM sync_queue")
+    suspend fun getQueueCount(): Int
+
+    @Query("DELETE FROM sync_queue WHERE id IN (SELECT id FROM sync_queue ORDER BY id ASC LIMIT :count)")
+    suspend fun trimOldest(count: Int)
 }
 
 @Database(entities = [LocalEventEntity::class, SyncQueueEntity::class], version = 1, exportSchema = false)

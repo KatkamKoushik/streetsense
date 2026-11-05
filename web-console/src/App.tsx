@@ -14,6 +14,7 @@ import {
 export const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [latencyMs, setLatencyMs] = useState(0);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeDeviceId, setActiveDeviceId] = useState<string | null>(null);
 
@@ -24,28 +25,38 @@ export const App: React.FC = () => {
   const [location, setLocation] = useState<LocationSnapshot | null>(null);
 
   useEffect(() => {
-    // Initial fetch of recent events from backend REST API
-    fetch('/api/v1/events?limit=20')
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setEvents(data.map((e) => ({
-            event_id: e.event_id,
-            session_id: e.session_id,
-            timestamp_ns: e.timestamp_ns,
-            category: e.category,
-            severity: e.severity,
-            confidence_breakdown: e.confidence_breakdown,
-            contributing_evidence_ids: e.contributing_evidence_ids,
-            explanation: e.explanation,
-            haptic_pattern: e.haptic_pattern,
-            latitude: e.latitude,
-            longitude: e.longitude,
-            is_dismissed: e.is_dismissed
-          })));
+    // Acquire authenticated token and load initial events
+    const initData = async () => {
+      try {
+        const token = await wsClient.acquireToken();
+        const res = await fetch('/api/v1/events?limit=20', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setEvents(data.map((e) => ({
+              event_id: e.event_id,
+              session_id: e.session_id,
+              timestamp_ns: e.timestamp_ns,
+              category: e.category,
+              severity: e.severity,
+              confidence_breakdown: e.confidence_breakdown,
+              contributing_evidence_ids: e.contributing_evidence_ids,
+              explanation: e.explanation,
+              haptic_pattern: e.haptic_pattern,
+              latitude: e.latitude,
+              longitude: e.longitude,
+              is_dismissed: e.is_dismissed
+            })));
+          }
         }
-      })
-      .catch((err) => console.log('REST event fetch notice:', err));
+      } catch (err: any) {
+        console.warn('Initial REST fetch notice:', err.message);
+      }
+    };
+
+    initData();
 
     // Connect WebSocket
     wsClient.connect();
@@ -53,6 +64,10 @@ export const App: React.FC = () => {
     const unsubStatus = wsClient.onStatusChange((connected, latency) => {
       setIsConnected(connected);
       setLatencyMs(latency);
+    });
+
+    const unsubError = wsClient.onError((errorMsg) => {
+      setAuthError(errorMsg);
     });
 
     const unsubMessages = wsClient.subscribe((envelope: WsMessageEnvelope) => {
@@ -99,6 +114,7 @@ export const App: React.FC = () => {
 
     return () => {
       unsubStatus();
+      unsubError();
       unsubMessages();
       wsClient.disconnect();
     };
@@ -106,7 +122,11 @@ export const App: React.FC = () => {
 
   const handleDismissAlert = async (eventId: string) => {
     try {
-      await fetch(`/api/v1/events/${eventId}/dismiss`, { method: 'POST' });
+      const token = await wsClient.acquireToken();
+      await fetch(`/api/v1/events/${eventId}/dismiss`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setEvents((prev) => prev.map((e) => (e.event_id === eventId ? { ...e, is_dismissed: true } : e)));
     } catch (e) {
       console.error('Failed to dismiss event', e);
@@ -121,6 +141,23 @@ export const App: React.FC = () => {
         activeSessionId={activeSessionId}
         activeDeviceId={activeDeviceId}
       />
+
+      {authError && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.15)',
+          color: '#fca5a5',
+          padding: '12px 20px',
+          borderRadius: '8px',
+          marginBottom: '20px',
+          border: '1px solid rgba(239, 68, 68, 0.4)',
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px'
+        }}>
+          <strong>Security Warning:</strong> {authError}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '20px' }}>
         {/* Left Column: Telemetry & Hardware Status */}

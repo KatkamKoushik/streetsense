@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Checklist 19-N007 & 19-N008: Control cloud backup and device-to-device transfer -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="streetsense_offline.db" />
+        <exclude domain="database" path="streetsense_offline.db-wal" />
+        <exclude domain="database" path="streetsense_offline.db-shm" />
+        <exclude domain="sharedpref" path="device_credentials.xml" />
+        <exclude domain="sharedpref" path="device_tokens.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="streetsense_offline.db" />
+        <exclude domain="sharedpref" path="device_tokens.xml" />
+    </device-transfer>
+</data-extraction-rules>

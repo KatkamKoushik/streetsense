@@ -1,8 +1,10 @@
 import pytest
 import pytest_asyncio
+import uuid
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.init_db import init_db
+from app.core.config import settings
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -21,63 +23,80 @@ async def test_health_and_readiness():
         resp2 = await client.get("/ready")
         assert resp2.status_code == 200
         assert resp2.json()["status"] == "ready"
+        assert resp2.json()["database"] == "connected"
+        assert resp2.json()["schema"] == "verified"
 
 
 @pytest.mark.asyncio
-async def test_auth_token_generation():
+async def test_device_registration_and_auth_lifecycle():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        payload = {"device_id": "test_device_001", "api_key": "test_key"}
-        resp = await client.post("/api/v1/auth/token", json=payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "access_token" in data
-        assert data["token_type"] == "bearer"
+        device_id = f"dev_test_{uuid.uuid4().hex[:6]}"
+        dev_secret = f"sec_test_{uuid.uuid4().hex[:16]}"
 
-
-@pytest.mark.asyncio
-async def test_device_registration_and_listing():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        dev_payload = {
-            "device_id": "pixel_8_pro_test",
-            "name": "Pixel 8 Pro Tester",
-            "model": "Pixel 8 Pro",
-            "os_version": "Android 14",
-            "app_version": "1.0.0"
+        # 1. Provision device with X-Provisioning-Key
+        prov_payload = {
+            "device_id": device_id,
+            "name": "Integration Test Device",
+            "model": "Test Phone",
+            "device_secret": dev_secret
         }
-        resp = await client.post("/api/v1/devices/register", json=dev_payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["device_id"] == "pixel_8_pro_test"
+        resp_prov = await client.post(
+            "/api/v1/devices/provision",
+            json=prov_payload,
+            headers={"X-Provisioning-Key": settings.DEVICE_PROVISIONING_KEY}
+        )
+        assert resp_prov.status_code == 200
+        prov_data = resp_prov.json()
+        assert prov_data["device_id"] == device_id
+        assert prov_data["is_active"] is True
+        assert prov_data["status"] == "ACTIVE"
 
-        resp_list = await client.get("/api/v1/devices")
-        assert resp_list.status_code == 200
-        devices = resp_list.json()
-        assert any(d["device_id"] == "pixel_8_pro_test" for d in devices)
+        # 2. Acquire device telemetry token using the provisioned secret
+        auth_resp = await client.post(
+            "/api/v1/auth/token",
+            json={"device_id": device_id, "device_secret": dev_secret}
+        )
+        assert auth_resp.status_code == 200
+        auth_data = auth_resp.json()
+        assert "access_token" in auth_data
+        assert auth_data["token_type"] == "bearer"
+        assert auth_data["subject"] == device_id
+        token = auth_data["access_token"]
 
+        # 3. Acquire console token to list devices
+        console_resp = await client.post(
+            "/api/v1/auth/console-token",
+            json={"api_key": settings.CONSOLE_API_KEY}
+        )
+        assert console_resp.status_code == 200
+        console_token = console_resp.json()["access_token"]
 
-@pytest.mark.asyncio
-async def test_session_lifecycle():
-    import uuid
-    test_session_id = f"sess_{uuid.uuid4().hex[:8]}"
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Start session
-        start_payload = {
-            "session_id": test_session_id,
-            "device_id": "pixel_8_pro_test"
-        }
-        resp = await client.post("/api/v1/sessions/start", json=start_payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["session_id"] == test_session_id
-        assert data["status"] == "ACTIVE"
+        # 4. List devices using console token
+        list_resp = await client.get(
+            "/api/v1/devices",
+            headers={"Authorization": f"Bearer {console_token}"}
+        )
+        assert list_resp.status_code == 200
+        devices = list_resp.json()
+        assert any(d["device_id"] == device_id for d in devices)
 
-        # End session
-        end_payload = {"summary": {"total_events": 0}}
-        resp_end = await client.post(f"/api/v1/sessions/{test_session_id}/end", json=end_payload)
-        assert resp_end.status_code == 200
-        data_end = resp_end.json()
-        assert data_end["status"] == "COMPLETED"
-        assert data_end["ended_at"] is not None
+        # 5. Start and end session using authenticated device token
+        session_id = f"sess_{uuid.uuid4().hex[:8]}"
+        start_resp = await client.post(
+            "/api/v1/sessions/start",
+            json={"session_id": session_id, "device_id": device_id},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert start_resp.status_code == 200
+        sess_data = start_resp.json()
+        assert sess_data["session_id"] == session_id
+        assert sess_data["status"] == "ACTIVE"
+
+        end_resp = await client.post(
+            f"/api/v1/sessions/{session_id}/end",
+            json={"summary": {"test": True}},
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        assert end_resp.status_code == 200
+        assert end_resp.json()["status"] == "COMPLETED"

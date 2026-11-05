@@ -1,88 +1,137 @@
-# StreetSense — Real-Time Protocol Specification
+# StreetSense — Real-Time WebSocket Protocol Specification
 
 ## 1. Transport Overview
 
 The StreetSense real-time transport coordinates low-latency, bidirectional telemetry and event streaming between:
-- Mobile Edge Clients (Android devices)
-- StreetSense Backend Gateway
-- Office Kit Observation Consoles
+- **Mobile Edge Clients** (Android devices transmitting sensor observations and fused hazard events)
+- **StreetSense Backend Gateway** (Authenticating identity, enforcing guardrails, persisting records)
+- **Web Observation Consoles** (Receiving real-time alerts and telemetry broadcasts)
 
 Transport Technology:
-- Primary: **Standard RFC 6455 WebSocket** over TLS (`wss://`)
-- Fallback: **Server-Sent Events (SSE)** for unidirectional monitoring clients where WebSockets are restricted.
+- Primary: **RFC 6455 WebSocket** over TLS (`wss://`)
+- Ports: Default 8000 (development), 443 (production)
 
 ---
 
-## 2. Message Envelope & Wire Format
+## 2. Authentication Handshake & Transport Modes
 
-Every WebSocket frame is serialized as UTF-8 JSON obeying the canonical envelope:
+Before any telemetry or observation message is processed, the WebSocket connection must be cryptographically authenticated. StreetSense supports three standard transport methods:
+
+### Mode 1: HTTP Authorization Header (Native Clients)
+```http
+GET /ws/telemetry HTTP/1.1
+Host: api.streetsense.io
+Upgrade: websocket
+Connection: Upgrade
+Authorization: Bearer <JWT_DEVICE_TOKEN>
+```
+
+### Mode 2: Sec-WebSocket-Protocol (Header-Restricted Clients)
+```http
+GET /ws/telemetry HTTP/1.1
+Host: api.streetsense.io
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Protocol: bearer.<JWT_DEVICE_TOKEN>
+```
+
+### Mode 3: First-Frame Authentication Envelope (Web Browsers)
+For clients that cannot customize WebSocket request headers, connect to `/ws/telemetry` or `/ws/console` directly and transmit the first frame within 5.0 seconds:
+```json
+{
+  "event_type": "auth",
+  "token": "<JWT_ACCESS_TOKEN>"
+}
+```
+Upon successful validation, the gateway responds with an authentication acknowledgement frame:
+```json
+{
+  "event_type": "auth.success",
+  "status": "authenticated",
+  "subject": "pixel_8_pro_edge_01"
+}
+```
+If the token is invalid, expired, or timed out, the server emits `auth.error` and closes the socket with code `4401 Policy Violation`.
+
+---
+
+## 3. Message Envelope & Wire Format
+
+Every WebSocket frame is serialized as UTF-8 JSON complying with `WsMessageEnvelope`:
 
 ```json
 {
-  "protocol_version": "1.0",
-  "message_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-  "correlation_id": "a82f1839-8137-4d92-bf3d-249d97b0a708",
-  "sequence_number": 412,
-  "timestamp_ms": 1728143523000,
-  "device_id": "pixel8-ss-01",
-  "session_id": "sess-849102",
-  "type": "event.detected",
-  "payload": { ... }
+  "message_id": "msg_1728143523000",
+  "correlation_id": "corr_849102",
+  "session_id": "sess_849102",
+  "device_id": "pixel_8_pro_edge_01",
+  "timestamp_ns": 1728143523000000000,
+  "event_type": "event.detected",
+  "sequence_number": 42,
+  "payload": {
+    "event": {
+      "event_id": "evt_fall_001",
+      "session_id": "sess_849102",
+      "timestamp_ns": 1728143523000000000,
+      "category": "PEDESTRIAN_FALL_OR_IMPACT",
+      "severity": "HIGH_RISK",
+      "confidence_breakdown": {
+        "prediction_confidence": 0.92,
+        "input_quality": 0.95,
+        "temporal_consistency": 0.88,
+        "sensor_reliability": 0.99,
+        "cross_expert_agreement": 0.90,
+        "geometric_consistency": 0.85,
+        "evidence_quality": 0.92,
+        "final_decision_confidence": 0.91
+      },
+      "contributing_evidence_ids": ["ev_accel_peak", "ev_impact_shock"],
+      "explanation": "High kinetic deceleration spike detected by MotionExpert.",
+      "haptic_pattern": "STRONG_DOUBLE_PULSE",
+      "is_dismissed": false
+    }
+  }
 }
 ```
 
 ### Envelope Fields
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `protocol_version` | String | Fixed `"1.0"` for schema validation |
-| `message_id` | UUID | Unique ID per frame, used for deduplication |
-| `correlation_id` | UUID | Trace ID linking an input tick $\to$ expert execution $\to$ event $\to$ alert |
-| `sequence_number` | Long | Monotonically increasing counter per device session to detect packet loss |
-| `timestamp_ms` | Long | Unix epoch millisecond timestamp generated at edge source |
-| `device_id` | String | Unique hardware/installation identifier |
-| `session_id` | String | Active session identifier |
-| `type` | String | Dot-notated message classification |
-| `payload` | Object | Specific typed payload corresponding to `type` |
+| `message_id` | String | Unique frame identifier for deduplication |
+| `correlation_id` | String | Distributed trace identifier correlating input tick to detection and alert |
+| `session_id` | String | Active session identifier (must belong to authenticated device) |
+| `device_id` | String | Device identifier (must strictly match authenticated token subject) |
+| `timestamp_ns` | Int (64-bit) | Epoch nanoseconds when reading was captured at edge |
+| `event_type` | String | Canonical event classification |
+| `sequence_number` | Int | Strictly monotonically increasing sequence number |
+| `payload` | Object | Typed data dictionary corresponding to `event_type` |
 
 ---
 
-## 3. Standard Event Taxonomy
+## 4. Ingress Guardrails & Rejection Error Codes
 
-### Session & Connection Lifecycle
-- `session.started`: Edge client initiates a new continuous monitoring session.
-- `session.updated`: Update in session configuration (e.g. inference rate changed).
-- `session.ended`: Graceful teardown of a sensing session.
-- `connection.status`: Edge or console reports ping/pong, RTT latency, jitter.
-- `device.status`: Periodic health ping (battery, thermal state, memory, sensor status).
+The gateway evaluates every frame against the following security gates:
 
-### Sensing & Pipeline Telemetry
-- `sensor.status`: Sensor availability matrix (Camera, GPS, IMU, Lux, Mag).
-- `sensor.snapshot`: Periodic downsampled or trigger-based sensor readings.
-- `inference.started`: Triggered when an expert execution pipeline begins.
-- `inference.completed`: End-to-end pipeline latency and candidate count.
+| Condition | Error Code | Response Message | Connection Action |
+| :--- | :--- | :--- | :--- |
+| Payload Size > 64 KB | 4413 | `Payload size exceeds 64KB ceiling` | Closes socket |
+| Rate Limit > 1200 msg/min | 4429 | `Rate limit exceeded. Maximum 1200 messages/minute.` | Closes socket |
+| Malformed JSON / Schema mismatch | 4400 | `Malformed envelope or invalid schema` | Closes socket |
+| Unapproved Event Type | 4403 | `Event type is not permitted` | Drops frame |
+| Envelope `device_id` != Token Subject | 4403 | `Identity mismatch: envelope device_id does not match authenticated token subject` | Closes socket |
+| Timestamp Skew > 300s | 4400 | `Timestamp skew exceeds 300 seconds` | Drops frame |
+| `sequence_number` <= previous seen | 4409 | `Sequence number must be strictly monotonic and greater than prior seen sequence` | Drops frame |
+| Session not found / ownership mismatch | 4400 | `Session not found or does not belong to authenticated device` | Drops frame |
 
-### Expert Orchestration Telemetry
-- `expert.started`: An expert instance (e.g. `ObjectExpert`) is invoked by the router.
-- `expert.completed`: Expert succeeded, reports confidence and latency.
-- `expert.failed`: Expert raised an exception or failed runtime constraint.
-- `evidence.created`: Atomic evidence item generated by an expert.
+---
 
-### Decision & Alert Telemetry
-- `event.detected`: Deterministic decision engine confirmed an environmental hazard/event.
-- `event.updated`: Temporal persistence or status update for an existing event.
+## 5. Standard Event Allowlist
+
+Only approved telemetry event types are processed on `/ws/telemetry`:
+- `sensor.status`: Sensor availability matrix and snapshot batches.
+- `device.status`: Hardware telemetry (battery level, battery temperature, thermal state).
+- `expert.completed`: Execution outcome of an edge expert run.
+- `inference.completed`: End-to-end edge pipeline inference outcome.
+- `event.detected`: Deterministic decision engine confirmed an environmental hazard.
 - `alert.triggered`: Edge alerted user via Haptic/Audio/HUD.
-- `alert.dismissed`: User or automatic cooldown dismissed the active alert.
-
----
-
-## 4. Idempotency, Sequence Numbers & Reconnection Recovery
-
-1. **At-Least-Once Delivery**: Edge clients persist outgoing messages in local SQLite before network transmission.
-2. **Deduplication**: Backend maintains a sliding window of recent `message_id` tokens per session in Redis/memory. Duplicate IDs receive an immediate `ack` without re-processing.
-3. **Session Reconnection**:
-   - When a connection drops, the edge client switches to exponential backoff (initial 1.0s, multiplier 1.5, max 30s).
-   - Upon reconnecting, the edge client sends `session.resume` including the `last_acknowledged_sequence_number`.
-   - The backend responds with `session.resumed`, indicating the sequence number from which synchronization resumes.
-4. **Heartbeats & Liveness**:
-   - Ping interval: 15 seconds.
-   - Timeout threshold: 45 seconds (3 missed pings causes connection teardown and transition to `DISCONNECTED`).
+- `heartbeat.ping`: Bidirectional liveness probe (receives `heartbeat.pong`).
