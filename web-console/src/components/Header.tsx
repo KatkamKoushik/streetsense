@@ -65,7 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        <div style={{
+        <div data-testid="connection-badge" style={{
           display: 'flex',
           alignItems: 'center',
           gap: '8px',

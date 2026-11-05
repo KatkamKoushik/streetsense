@@ -108,6 +108,38 @@ async def test_stale_gps_fix_rejection():
 
 
 @pytest.mark.asyncio
+async def test_future_skew_gps_fix_rejection():
+    """
+    Checklist 75-N001 / 75-N002: Reject GPS fixes more than 5.0s in the future as clock skew.
+    """
+    expert = LocationExpert()
+    now_ns = time.time_ns()
+
+    # Create future-skewed GPS fix: 10 seconds in future
+    future_timestamp_ns = now_ns + int(10.0 * 1e9)
+    future_loc = LocationSnapshot(
+        latitude=37.7749,
+        longitude=-122.4194,
+        accuracy_meters=8.0,
+        speed_mps=12.0,
+        timestamp_ns=future_timestamp_ns,
+        is_available=True
+    )
+
+    req = ExpertRequest(
+        session_id="s_future_gps",
+        correlation_id="c_future_gps",
+        target_capabilities=[ExpertCapability.LOCATION_ANALYSIS],
+        location_snapshot=future_loc
+    )
+
+    result = await expert.execute(req)
+    assert result.status == ExecutionStatus.UNAVAILABLE
+    assert "stale location fix or clock skew" in result.limitations[0]
+    assert len(result.evidence) == 0
+
+
+@pytest.mark.asyncio
 async def test_fresh_gps_fix_accepted():
     """
     Checklist 75-N001: Fresh GPS fix within 10.0s window is processed correctly.

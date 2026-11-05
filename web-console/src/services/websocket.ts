@@ -23,11 +23,18 @@ export class ConsoleWebSocketClient {
   public lastError: string | null = null;
 
   constructor(
-    url: string = 'ws://127.0.0.1:8000/ws/console',
+    url?: string,
     apiKey: string = 'streetsense_dev_console_access_key_32c'
   ) {
-    this.url = url;
-    this.apiKey = localStorage.getItem('streetsense_console_key') || apiKey;
+    if (url) {
+      this.url = url;
+    } else if (typeof window !== 'undefined' && window.location && window.location.host) {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      this.url = `${proto}//${window.location.host}/ws/console`;
+    } else {
+      this.url = 'ws://127.0.0.1:8000/ws/console';
+    }
+    this.apiKey = (typeof localStorage !== 'undefined' ? localStorage.getItem('streetsense_console_key') : null) || apiKey;
   }
 
   public setApiKey(key: string): void {

@@ -85,6 +85,7 @@ export const AlertIncidentFeed: React.FC<AlertIncidentFeedProps> = ({ events, on
           return (
             <div
               key={evt.event_id}
+              data-testid={`event-card-${evt.event_id}`}
               className="glass-panel-subtle"
               style={{
                 border: style.border,
@@ -117,6 +118,7 @@ export const AlertIncidentFeed: React.FC<AlertIncidentFeedProps> = ({ events, on
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
+                    data-testid={`dismiss-${evt.event_id}`}
                     onClick={() => onDismiss(evt.event_id)}
                     style={{
                       background: 'rgba(148, 163, 184, 0.15)',

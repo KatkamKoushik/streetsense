@@ -33,13 +33,13 @@ class LocationExpert(BaseExpert):
                 f"GPS fix unavailable or accuracy degraded (sentinel: {sentinel_val}m)"
             )
 
-        # Stale GPS fix rejection (75-N001): Reject fixes older than 10 seconds
+        # Stale GPS fix rejection (75-N001 / 75-N002): Reject fixes older than 10 seconds or future-skewed > 5 seconds
         if loc.timestamp_ns > 0:
             age_seconds = (now_ns - loc.timestamp_ns) / 1e9
-            if age_seconds > 10.0:
+            if age_seconds > 10.0 or age_seconds < -5.0:
                 return self.create_fallback_result(
                     ExecutionStatus.UNAVAILABLE,
-                    f"GPS fix rejected: stale location fix ({age_seconds:.1f}s old > 10.0s threshold)"
+                    f"GPS fix rejected: stale location fix or clock skew ({age_seconds:.1f}s outside valid window [-5.0s, 10.0s])"
                 )
 
         evidence_list = []

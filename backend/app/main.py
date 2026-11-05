@@ -1,6 +1,9 @@
+import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.core.config import settings
@@ -56,6 +59,17 @@ app.include_router(telemetry_router, prefix=settings.API_V1_PREFIX)
 
 # WebSocket Router
 app.include_router(ws_router)
+
+# Static Web Console UI Mount (if built)
+web_dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web-console", "dist"))
+if os.path.isdir(web_dist_dir):
+    assets_dir = os.path.join(web_dist_dir, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/", tags=["ui"])
+    async def serve_ui():
+        return FileResponse(os.path.join(web_dist_dir, "index.html"))
 
 
 @app.get("/health", tags=["system"])
